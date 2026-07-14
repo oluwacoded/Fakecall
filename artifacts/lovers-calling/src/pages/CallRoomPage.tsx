@@ -8,10 +8,7 @@ import { useAuth } from "@clerk/react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
-type VoiceMode = { voiceId: string; name: string; emoji: string; category: string };
-
-const VOICE_PRESETS_MALE = "pNInz6obpgDQGcFmaJgB";
-const VOICE_PRESETS_FEMALE = "EXAVITQu4vr4xnSDxMaL";
+type VoiceMode = { voiceId: string; name: string; emoji: string; category: string; gender?: string; description?: string };
 
 export default function CallRoomPage() {
   const [, params] = useRoute("/call/:code");
@@ -30,6 +27,7 @@ export default function CallRoomPage() {
   const [peerVoiceMode, setPeerVoiceMode] = useState<string>("natural");
   const [peersCount, setPeersCount] = useState(0);
   const [activeTab, setActiveTab] = useState<"base" | "celebrity">("base");
+  const [celebGender, setCelebGender] = useState<"male" | "female">("male");
 
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -181,30 +179,17 @@ export default function CallRoomPage() {
     const audioReady = await initAudio();
     if (!audioReady) return;
 
-    if (voice.category === 'celebrity' && voice.voiceId !== 'natural') {
+    // All non-natural voices go through ElevenLabs STS for maximum realism
+    if (voice.voiceId !== 'natural') {
       startCelebrityTransform(voice.voiceId);
     } else {
+      // Natural — pass audio straight through
       if (audioContextRef.current && localStreamRef.current) {
         const ctx = audioContextRef.current;
         const source = ctx.createMediaStreamSource(localStreamRef.current);
         const dest = ctx.createMediaStreamDestination();
         processedStreamRef.current = dest.stream;
-
-        if (voice.voiceId === VOICE_PRESETS_MALE) {
-          const filter = ctx.createBiquadFilter();
-          filter.type = 'lowshelf';
-          filter.frequency.value = 300;
-          filter.gain.value = 8;
-          source.connect(filter).connect(analyserRef.current!).connect(dest);
-        } else if (voice.voiceId === VOICE_PRESETS_FEMALE) {
-          const filter = ctx.createBiquadFilter();
-          filter.type = 'highshelf';
-          filter.frequency.value = 3000;
-          filter.gain.value = 6;
-          source.connect(filter).connect(analyserRef.current!).connect(dest);
-        } else {
-          source.connect(analyserRef.current!).connect(dest);
-        }
+        source.connect(analyserRef.current!).connect(dest);
 
         const audioTrack = dest.stream.getAudioTracks()[0];
         if (audioTrack) {
@@ -425,6 +410,8 @@ export default function CallRoomPage() {
   const voices = (voicesData?.voices as any[]) ?? [];
   const baseVoices = voices.filter(v => v.category === 'base');
   const celebVoices = voices.filter(v => v.category === 'celebrity');
+  const maleCelebs = celebVoices.filter(v => v.gender === 'male');
+  const femaleCelebs = celebVoices.filter(v => v.gender === 'female');
 
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col relative overflow-hidden">
@@ -467,15 +454,15 @@ export default function CallRoomPage() {
 
         <div className="w-full max-w-md bg-card/80 backdrop-blur-xl border border-card-border rounded-3xl p-6 shadow-2xl flex flex-col min-h-[350px]">
           
-          {/* Tabs */}
-          <div className="flex bg-[#120e15] rounded-xl p-1 mb-6 border border-border shrink-0">
+          {/* Main Tabs */}
+          <div className="flex bg-[#120e15] rounded-xl p-1 mb-4 border border-border shrink-0">
             <button
               onClick={() => setActiveTab("base")}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 activeTab === "base" ? "bg-primary/20 text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Base
+              Voices
             </button>
             <button
               onClick={() => setActiveTab("celebrity")}
@@ -483,9 +470,31 @@ export default function CallRoomPage() {
                 activeTab === "celebrity" ? "bg-primary/20 text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Celebrity
+              Celebrity {celebVoices.length > 0 && <span className="text-[10px] opacity-60">({celebVoices.length})</span>}
             </button>
           </div>
+
+          {/* Celebrity gender sub-tabs */}
+          {activeTab === "celebrity" && (
+            <div className="flex gap-2 mb-4 shrink-0">
+              <button
+                onClick={() => setCelebGender("male")}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                  celebGender === "male" ? "border-primary/50 text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                👨 Male ({maleCelebs.length})
+              </button>
+              <button
+                onClick={() => setCelebGender("female")}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                  celebGender === "female" ? "border-primary/50 text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                👩 Female ({femaleCelebs.length})
+              </button>
+            </div>
+          )}
 
           {/* Voice Picker Grid */}
           <div className="flex-1 overflow-y-auto mb-6 pr-1 custom-scrollbar">
@@ -503,45 +512,51 @@ export default function CallRoomPage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="grid grid-cols-3 gap-3"
+                    className="grid grid-cols-2 gap-3"
                   >
-                    {[
-                      { voiceId: 'natural', name: 'Natural', emoji: '🎙', category: 'base' },
-                      ...baseVoices.map(v => ({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'base' }))
-                    ].map((v) => {
+                    {baseVoices.map((v: any) => {
                       const isSelected = voiceMode.voiceId === v.voiceId;
                       return (
                         <button
                           key={v.voiceId}
-                          onClick={() => handleVoiceModeChange(v)}
-                          className={`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+                          onClick={() => handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '🎙️', category: 'base', gender: v.gender, description: v.description })}
+                          className={`flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl border transition-all ${
                             isSelected 
                               ? "bg-primary/10 border-primary text-primary shadow-[0_0_15px_rgba(194,133,106,0.15)]" 
                               : "bg-[#120e15] border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
                           }`}
                         >
                           <span className="text-2xl">{v.emoji}</span>
-                          <span className="text-[10px] font-mono uppercase tracking-widest text-center">{v.name}</span>
+                          <span className={`text-xs font-semibold text-center ${isSelected ? 'text-primary' : 'text-foreground'}`}>{v.name}</span>
+                          {v.description && <span className="text-[9px] text-muted-foreground text-center font-mono">{v.description}</span>}
+                          {isSelected && v.voiceId !== 'natural' && (
+                            <div className="flex items-center gap-1 text-[8px] font-mono text-primary mt-0.5">
+                              <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div> AI LIVE
+                            </div>
+                          )}
                         </button>
                       );
                     })}
+                    <div className="col-span-2 text-center mt-1">
+                      <p className="text-[9px] text-muted-foreground font-mono">All non-natural voices processed by ElevenLabs AI · ~2s delay</p>
+                    </div>
                   </motion.div>
                 )}
                 
                 {activeTab === "celebrity" && (
                   <motion.div 
-                    key="celebrity"
+                    key={`celebrity-${celebGender}`}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     className="grid grid-cols-2 gap-3"
                   >
-                    {celebVoices.map((v) => {
+                    {(celebGender === "male" ? maleCelebs : femaleCelebs).map((v: any) => {
                       const isSelected = voiceMode.voiceId === v.voiceId;
                       return (
                         <button
                           key={v.voiceId}
-                          onClick={() => handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'celebrity' })}
+                          onClick={() => handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'celebrity', gender: v.gender })}
                           className={`relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all overflow-hidden group ${
                             isSelected 
                               ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(194,133,106,0.2)]" 
@@ -549,13 +564,11 @@ export default function CallRoomPage() {
                           }`}
                         >
                           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                          
                           <span className="text-3xl mb-2">{v.emoji || '👤'}</span>
-                          <span className={`text-sm font-medium mb-1 ${isSelected ? 'text-primary' : 'text-foreground'}`}>{v.name}</span>
+                          <span className={`text-sm font-medium mb-1 text-center leading-tight ${isSelected ? 'text-primary' : 'text-foreground'}`}>{v.name}</span>
                           <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted-foreground font-mono">
                             <Sparkles className="w-3 h-3 text-secondary" /> AI Voice
                           </div>
-
                           {isSelected && (
                             <div className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-mono tracking-widest uppercase bg-primary/20 text-primary border border-primary/30">
                               <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
@@ -565,9 +578,15 @@ export default function CallRoomPage() {
                         </button>
                       );
                     })}
+                    {celebVoices.length === 0 && (
+                      <div className="col-span-2 flex flex-col items-center justify-center py-8 text-muted-foreground">
+                        <Sparkles className="w-6 h-6 mb-2 opacity-40" />
+                        <p className="text-xs font-mono">Loading celebrity voices…</p>
+                      </div>
+                    )}
                     {celebVoices.length > 0 && (
-                      <div className="col-span-2 text-center mt-2">
-                        <p className="text-[10px] text-muted-foreground font-mono">Celebrity voices have ~2s processing delay</p>
+                      <div className="col-span-2 text-center mt-1">
+                        <p className="text-[9px] text-muted-foreground font-mono">Powered by ElevenLabs AI · ~2s processing delay</p>
                       </div>
                     )}
                   </motion.div>

@@ -3,7 +3,7 @@ import { getAuth } from "@clerk/express";
 import {
   getCelebrityVoices,
   transformVoice,
-  VOICE_PRESETS,
+  BASE_VOICES,
 } from "../lib/elevenlabs";
 import { logger } from "../lib/logger";
 
@@ -11,7 +11,7 @@ const router = Router();
 
 /**
  * GET /voice/voices
- * Returns base voices + celebrity voices from ElevenLabs shared library.
+ * Returns base voices + celebrity voices (male & female) from ElevenLabs.
  */
 router.get("/voice/voices", async (req, res) => {
   const { userId } = getAuth(req);
@@ -20,23 +20,17 @@ router.get("/voice/voices", async (req, res) => {
     return;
   }
 
-  const base = [
-    { voiceId: "natural", name: "Natural", emoji: "🎙", category: "base", query: "natural" },
-    { voiceId: VOICE_PRESETS.male, name: "Deep Male", emoji: "👤", category: "base", query: "male" },
-    { voiceId: VOICE_PRESETS.female, name: "Soft Female", emoji: "👤", category: "base", query: "female" },
-  ];
-
   try {
     const celebrity = await getCelebrityVoices();
     res.json({
       voices: [
-        ...base,
+        ...BASE_VOICES,
         ...celebrity.map((v) => ({ ...v, category: "celebrity" })),
       ],
     });
   } catch (err) {
     logger.warn({ err }, "Could not fetch celebrity voices, returning base only");
-    res.json({ voices: base });
+    res.json({ voices: BASE_VOICES });
   }
 });
 

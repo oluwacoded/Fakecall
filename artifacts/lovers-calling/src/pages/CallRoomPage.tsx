@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useRoute } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { io, Socket } from "socket.io-client";
-import { Mic, MicOff, PhoneOff, Ear, Fingerprint, Sparkles } from "lucide-react";
+import { Mic, MicOff, PhoneOff, Ear, Sparkles, Play, Square } from "lucide-react";
 import { useGetRoomByCode, useGetMe, useGetVoices } from "@workspace/api-client-react";
 import { useAuth } from "@clerk/react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,8 @@ export default function CallRoomPage() {
   const [peersCount, setPeersCount] = useState(0);
   const [activeTab, setActiveTab] = useState<"base" | "celebrity">("base");
   const [celebGender, setCelebGender] = useState<"male" | "female">("male");
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -205,6 +207,37 @@ export default function CallRoomPage() {
       socketRef.current.emit('voice-mode-change', { roomCode: code, mode: voice.voiceId });
     }
   }, [stopCelebrityTransform, startCelebrityTransform, initAudio, code]);
+
+  const handlePreview = useCallback(async (voiceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Stop any playing preview
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    if (previewingVoiceId === voiceId) {
+      setPreviewingVoiceId(null);
+      return;
+    }
+    setPreviewingVoiceId(voiceId);
+    try {
+      const token = authTokenRef.current;
+      const res = await fetch(`/api/voice/preview/${voiceId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Preview failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      previewAudioRef.current = audio;
+      audio.onended = () => { setPreviewingVoiceId(null); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setPreviewingVoiceId(null); URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch {
+      setPreviewingVoiceId(null);
+      toast({ variant: "destructive", title: "Preview unavailable", description: "Could not load voice sample." });
+    }
+  }, [previewingVoiceId, toast]);
 
   const toggleMute = () => {
     const newMuted = !isMuted;
@@ -516,11 +549,12 @@ export default function CallRoomPage() {
                   >
                     {baseVoices.map((v: any) => {
                       const isSelected = voiceMode.voiceId === v.voiceId;
+                      const isPreviewing = previewingVoiceId === v.voiceId;
                       return (
                         <button
                           key={v.voiceId}
                           onClick={() => handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '🎙️', category: 'base', gender: v.gender, description: v.description })}
-                          className={`flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl border transition-all ${
+                          className={`relative flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl border transition-all ${
                             isSelected 
                               ? "bg-primary/10 border-primary text-primary shadow-[0_0_15px_rgba(194,133,106,0.15)]" 
                               : "bg-[#120e15] border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
@@ -533,6 +567,15 @@ export default function CallRoomPage() {
                             <div className="flex items-center gap-1 text-[8px] font-mono text-primary mt-0.5">
                               <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div> AI LIVE
                             </div>
+                          )}
+                          {v.voiceId !== 'natural' && (
+                            <button
+                              onClick={(e) => handlePreview(v.voiceId, e)}
+                              className={`absolute top-2 right-2 p-1 rounded-md transition-all ${isPreviewing ? 'bg-primary/30 text-primary' : 'bg-white/5 text-muted-foreground hover:text-primary hover:bg-primary/10'}`}
+                              title="Preview voice"
+                            >
+                              {isPreviewing ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                            </button>
                           )}
                         </button>
                       );
@@ -553,6 +596,7 @@ export default function CallRoomPage() {
                   >
                     {(celebGender === "male" ? maleCelebs : femaleCelebs).map((v: any) => {
                       const isSelected = voiceMode.voiceId === v.voiceId;
+                      const isPreviewing = previewingVoiceId === v.voiceId;
                       return (
                         <button
                           key={v.voiceId}
@@ -569,11 +613,20 @@ export default function CallRoomPage() {
                           <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted-foreground font-mono">
                             <Sparkles className="w-3 h-3 text-secondary" /> AI Voice
                           </div>
-                          {isSelected && (
+                          {/* Live badge OR preview button */}
+                          {isSelected ? (
                             <div className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-mono tracking-widest uppercase bg-primary/20 text-primary border border-primary/30">
                               <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
                               LIVE
                             </div>
+                          ) : (
+                            <button
+                              onClick={(e) => handlePreview(v.voiceId, e)}
+                              className={`absolute top-2 right-2 p-1 rounded-md transition-all z-10 ${isPreviewing ? 'bg-primary/30 text-primary' : 'bg-white/5 text-muted-foreground hover:text-primary hover:bg-primary/10'}`}
+                              title="Preview voice"
+                            >
+                              {isPreviewing ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                            </button>
                           )}
                         </button>
                       );

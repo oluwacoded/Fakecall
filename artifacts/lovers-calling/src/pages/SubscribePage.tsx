@@ -45,16 +45,23 @@ export default function SubscribePage() {
       
       if (data.success) {
         toast({
-          title: "Access Granted",
+          title: "Access Granted ✓",
           description: "Welcome to the Frequency.",
         });
         queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() });
         setLocation('/dashboard');
+      } else if (data.notAuthenticated) {
+        toast({
+          variant: "destructive",
+          title: "Sign In Required",
+          description: "Please sign in first, then enter your code.",
+        });
+        setLocation('/sign-in');
       } else {
         toast({
           variant: "destructive",
-          title: "Access Denied",
-          description: data.error || "Invalid access code.",
+          title: "Invalid Code",
+          description: data.error || "This code is invalid or has already been used.",
         });
       }
     } catch (err) {

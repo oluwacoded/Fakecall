@@ -137,6 +137,38 @@ export const BASE_VOICES = [
   { voiceId: VOICE_PRESETS.female2,   name: "Clear Female",     emoji: "✨", category: "base", gender: "female",  description: "Crisp, professional" },
 ];
 
+// ── Text-to-Speech preview ───────────────────────────────────────────────────
+export async function previewVoice(voiceId: string): Promise<Buffer> {
+  const apiKey = getApiKey();
+
+  const phrase = "Hey, this is how I sound. Pretty convincing, right?";
+
+  const resp = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: phrase,
+        model_id: "eleven_turbo_v2",
+        voice_settings: { stability: 0.4, similarity_boost: 0.85 },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(`ElevenLabs TTS failed: ${resp.status} — ${err}`);
+  }
+
+  const arrayBuffer = await resp.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 // ── Speech-to-Speech ─────────────────────────────────────────────────────────
 export async function transformVoice(
   audioBuffer: Buffer,

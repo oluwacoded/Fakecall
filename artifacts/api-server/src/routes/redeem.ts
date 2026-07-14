@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "@clerk/express";
+import { getAuth } from "@clerk/express";
 import { storage } from "../lib/storage";
 import { logger } from "../lib/logger";
 
@@ -10,10 +10,11 @@ const router = Router();
  * Body: { code: string }
  * Validates and redeems an access code, granting the user subscription access.
  */
-router.post("/redeem", requireAuth(), async (req, res) => {
-  const userId = req.auth?.userId;
+router.post("/redeem", async (req, res) => {
+  const { userId } = getAuth(req);
   if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
+    logger.warn({ headers: Object.keys(req.headers) }, "Redeem attempted without valid auth");
+    res.status(401).json({ error: "Please sign in before redeeming a code.", notAuthenticated: true });
     return;
   }
 

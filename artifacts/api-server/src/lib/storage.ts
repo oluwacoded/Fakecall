@@ -1,6 +1,6 @@
-import { db, usersTable, roomsTable } from "@workspace/db";
-import { eq, sql, desc, count } from "drizzle-orm";
-import type { User, Room } from "@workspace/db";
+import { db, usersTable, roomsTable, accessCodesTable } from "@workspace/db";
+import { eq, sql, desc, count, and } from "drizzle-orm";
+import type { User, Room, AccessCode } from "@workspace/db";
 
 export class Storage {
   // ── Users ────────────────────────────────────────────────────────────────────
@@ -29,34 +29,61 @@ export class Storage {
     return user;
   }
 
-  async updateUserStripeInfo(
-    userId: string,
-    info: {
-      stripeCustomerId?: string;
-      stripeSubscriptionId?: string;
-      isSubscribed?: boolean;
-    },
-  ): Promise<User> {
+  async markUserSubscribed(userId: string): Promise<User> {
     const [user] = await db
       .update(usersTable)
-      .set(info)
+      .set({ isSubscribed: true })
       .where(eq(usersTable.id, userId))
       .returning();
     return user;
   }
 
-  async updateSubscriptionStatus(
-    stripeCustomerId: string,
-    isSubscribed: boolean,
-    subscriptionId?: string,
-  ): Promise<void> {
-    await db
-      .update(usersTable)
-      .set({
-        isSubscribed,
-        stripeSubscriptionId: subscriptionId ?? null,
-      })
-      .where(eq(usersTable.stripeCustomerId, stripeCustomerId));
+  // ── Access Codes ─────────────────────────────────────────────────────────────
+
+  async redeemCode(
+    code: string,
+    userId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const [existing] = await db
+      .select()
+      .from(accessCodesTable)
+      .where(eq(accessCodesTable.code, code.trim().toUpperCase()));
+
+    if (!existing) {
+      return { success: false, error: "Invalid code. Please check and try again." };
+    }
+
+    if (existing.isUsed) {
+      return { success: false, error: "This code has already been used." };
+    }
+
+    // Mark code as used and subscribe user — in a transaction
+    await db.transaction(async (tx) => {
+      await tx
+        .update(accessCodesTable)
+        .set({ isUsed: true, usedByUserId: userId, usedAt: new Date() })
+        .where(
+          and(
+            eq(accessCodesTable.code, code.trim().toUpperCase()),
+            eq(accessCodesTable.isUsed, false),
+          ),
+        );
+
+      await tx
+        .update(usersTable)
+        .set({ isSubscribed: true })
+        .where(eq(usersTable.id, userId));
+    });
+
+    return { success: true };
+  }
+
+  async getCodeStatus(code: string): Promise<AccessCode | undefined> {
+    const [row] = await db
+      .select()
+      .from(accessCodesTable)
+      .where(eq(accessCodesTable.code, code.trim().toUpperCase()));
+    return row;
   }
 
   // ── Rooms ────────────────────────────────────────────────────────────────────
@@ -134,33 +161,6 @@ export class Storage {
       activeRooms: Number(totals?.active ?? 0),
       recentRooms,
     };
-  }
-
-  // ── Stripe (via stripe schema) ───────────────────────────────────────────────
-
-  async getSubscription(subscriptionId: string) {
-    const result = await db.execute(
-      sql`SELECT * FROM stripe.subscriptions WHERE id = ${subscriptionId}`,
-    );
-    return result.rows[0] ?? null;
-  }
-
-  async getProductsWithPrices() {
-    const result = await db.execute(sql`
-      SELECT
-        p.id as product_id,
-        p.name as product_name,
-        p.description as product_description,
-        pr.id as price_id,
-        pr.unit_amount,
-        pr.currency,
-        pr.recurring
-      FROM stripe.products p
-      JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-      WHERE p.active = true
-      ORDER BY pr.unit_amount ASC
-    `);
-    return result.rows;
   }
 }
 

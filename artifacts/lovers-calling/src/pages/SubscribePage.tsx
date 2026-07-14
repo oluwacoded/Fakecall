@@ -1,19 +1,23 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Check, Sparkles, Lock } from "lucide-react";
-import { useGetPlans, useGetSubscription, useCreateCheckout } from "@workspace/api-client-react";
+import { Lock, Unlock, Key, Send } from "lucide-react";
+import { useGetSubscription, getGetSubscriptionQueryKey } from "@workspace/api-client-react";
+import { useAuth } from "@clerk/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
 export default function SubscribePage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [interval, setInterval] = useState<"month" | "year">("month");
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data: subStatus, isLoading: isLoadingSub } = useGetSubscription();
-  const { data: plansData, isLoading: isLoadingPlans } = useGetPlans();
-  const createCheckout = useCreateCheckout();
+  
+  const [accessCode, setAccessCode] = useState("");
+  const [isRedeeming, setIsRedeeming] = useState(false);
 
   useEffect(() => {
     // If already subscribed, redirect to dashboard
@@ -22,25 +26,49 @@ export default function SubscribePage() {
     }
   }, [subStatus, setLocation]);
 
-  const handleSubscribe = (priceId: string) => {
-    createCheckout.mutate(
-      { data: { priceId } },
-      {
-        onSuccess: (res) => {
-          window.location.href = res.url;
+  const handleRedeem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessCode.trim()) return;
+
+    setIsRedeeming(true);
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/redeem', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
         },
-        onError: () => {
-          toast({
-            variant: "destructive",
-            title: "Checkout failed",
-            description: "Could not initiate payment. Please try again.",
-          });
-        }
+        body: JSON.stringify({ code: accessCode.trim().toUpperCase() })
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        toast({
+          title: "Access Granted",
+          description: "Welcome to the Frequency.",
+        });
+        queryClient.invalidateQueries({ queryKey: getGetSubscriptionQueryKey() });
+        setLocation('/dashboard');
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Access Denied",
+          description: data.error || "Invalid access code.",
+        });
       }
-    );
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Connection Error",
+        description: "Failed to verify code. Please try again.",
+      });
+    } finally {
+      setIsRedeeming(false);
+    }
   };
 
-  if (isLoadingSub || isLoadingPlans) {
+  if (isLoadingSub) {
     return (
       <div className="min-h-[100dvh] bg-background flex items-center justify-center">
         <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
@@ -48,103 +76,123 @@ export default function SubscribePage() {
     );
   }
 
-  const plans = plansData?.plans || [];
-  const filteredPlans = plans.filter(p => p.interval === interval);
-
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col">
-      <header className="p-6 flex justify-center">
+    <div className="min-h-[100dvh] bg-background flex flex-col relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(194,133,106,0.05)_0%,rgba(13,10,16,1)_70%)] pointer-events-none"></div>
+
+      <header className="p-6 flex justify-center relative z-10">
         <img src="/logo.svg" alt="Logo" className="w-8 h-8" />
       </header>
 
-      <main className="flex-1 flex flex-col items-center py-12 px-6">
+      <main className="flex-1 flex flex-col items-center py-12 px-6 relative z-10">
         <div className="text-center max-w-2xl mx-auto mb-12">
           <div className="inline-flex items-center justify-center p-3 rounded-full bg-primary/10 mb-6">
             <Lock className="w-6 h-6 text-primary" />
           </div>
           <h1 className="text-4xl md:text-5xl font-serif text-foreground mb-4">Unlock the Frequency</h1>
-          <p className="text-muted-foreground text-lg font-light">
-            Absolute privacy requires a premium infrastructure. Subscribe to create unlimited secure rooms and use real-time voice disguise.
+          <p className="text-muted-foreground text-lg font-light max-w-lg mx-auto">
+            Absolute privacy requires a premium infrastructure. Complete your payment and enter your access code to enter the private club.
           </p>
         </div>
 
-        {/* Toggle */}
-        {plans.some(p => p.interval === 'year') && (
-          <div className="bg-card p-1 rounded-full flex border border-card-border mb-12">
-            <button
-              onClick={() => setInterval("month")}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${interval === "month" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              Monthly
-            </button>
-            <button
-              onClick={() => setInterval("year")}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${interval === "year" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              Yearly
-            </button>
-          </div>
-        )}
-
-        {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl w-full">
-          {filteredPlans.length > 0 ? (
-             filteredPlans.map((plan, i) => (
-              <motion.div
-                key={plan.priceId}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={`relative p-8 rounded-3xl border bg-card/50 backdrop-blur-sm flex flex-col ${
-                  i === 0 ? "border-primary/50 shadow-[0_0_30px_rgba(194,133,106,0.1)]" : "border-card-border"
-                }`}
-              >
-                {i === 0 && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-primary text-primary-foreground text-xs font-bold uppercase tracking-wider rounded-full flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> Recommended
-                  </div>
-                )}
-                
-                <h3 className="text-2xl font-serif text-foreground mb-2">{plan.name}</h3>
-                <div className="mb-6 flex items-baseline gap-1">
-                  <span className="text-4xl font-light text-foreground">${plan.amount / 100}</span>
-                  <span className="text-muted-foreground">/{plan.interval}</span>
-                </div>
-                
-                <ul className="space-y-4 mb-8 flex-1">
-                  {[
-                    "Unlimited secure calling rooms",
-                    "Real-time AI voice disguise (M/F)",
-                    "End-to-end encrypted connections",
-                    "Self-destructing access links",
-                    "Priority network routing"
-                  ].map((feature, j) => (
-                    <li key={j} className="flex items-start gap-3 text-sm text-muted-foreground">
-                      <Check className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-                
-                <Button 
-                  onClick={() => handleSubscribe(plan.priceId)}
-                  disabled={createCheckout.isPending}
-                  className={`w-full py-6 rounded-xl ${
-                    i === 0 
-                      ? "bg-primary hover:bg-secondary text-primary-foreground" 
-                      : "bg-muted hover:bg-muted/80 text-foreground"
-                  }`}
-                >
-                  {createCheckout.isPending ? "Processing..." : "Select Plan"}
-                </Button>
-              </motion.div>
-            ))
-          ) : (
-            <div className="col-span-full p-8 text-center bg-card border border-card-border rounded-2xl">
-              <p className="text-muted-foreground">No plans available for {interval} billing at this time.</p>
-              {plans.length === 0 && <p className="text-xs mt-2 opacity-50">Admin: Configure Stripe products to see plans here.</p>}
+        <div className="max-w-md w-full space-y-6">
+          {/* Step 1 */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="p-6 rounded-2xl bg-card border border-card-border relative overflow-hidden"
+          >
+            <div className="text-primary font-mono text-sm uppercase tracking-widest mb-3 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-xs">1</span>
+              Make Payment
             </div>
-          )}
+            <p className="text-foreground mb-4 text-sm leading-relaxed">
+              Send your payment to secure your access. Any amount set by the operator.
+            </p>
+            <div className="bg-[#120e15] rounded-xl p-4 border border-[#2b2131] space-y-3">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Bank</span>
+                <span className="text-foreground font-medium">Opay / Moniepoint</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Account</span>
+                <span className="text-foreground font-mono text-lg tracking-widest text-primary">9132883869</span>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Step 2 */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="p-6 rounded-2xl bg-card border border-card-border"
+          >
+            <div className="text-primary font-mono text-sm uppercase tracking-widest mb-3 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-xs">2</span>
+              Get Your Code
+            </div>
+            <p className="text-muted-foreground text-sm leading-relaxed mb-5">
+              Send your payment receipt via WhatsApp to receive your exclusive access code.
+            </p>
+            <a 
+              href="https://wa.me/2349132883868" 
+              target="_blank" 
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/20 hover:bg-[#25D366]/20 transition-colors font-medium shadow-[0_0_15px_rgba(37,211,102,0.1)] hover:shadow-[0_0_20px_rgba(37,211,102,0.2)]"
+            >
+              <Send className="w-5 h-5" />
+              Contact WhatsApp
+            </a>
+          </motion.div>
+
+          {/* Step 3 */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="p-6 rounded-2xl bg-card border border-primary/50 shadow-[0_0_30px_rgba(194,133,106,0.1)] relative overflow-hidden mt-8"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl"></div>
+            <div className="relative z-10">
+              <div className="text-primary font-mono text-sm uppercase tracking-widest mb-5 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-xs">3</span>
+                Redeem Code
+              </div>
+              <form onSubmit={handleRedeem} className="space-y-4">
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <Key className="w-5 h-5" />
+                  </div>
+                  <input 
+                    type="text"
+                    value={accessCode}
+                    onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
+                    placeholder="ENTER ACCESS CODE"
+                    className="w-full bg-[#120e15] border border-[#2b2131] rounded-xl py-5 pl-12 pr-4 text-foreground font-mono text-lg md:text-xl tracking-[0.2em] uppercase placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all text-center"
+                  />
+                </div>
+                <Button 
+                  type="submit"
+                  disabled={!accessCode.trim() || isRedeeming}
+                  className="w-full py-7 rounded-xl bg-gradient-to-r from-primary to-[#8c574b] hover:from-secondary hover:to-primary text-[#0d0a10] font-medium text-lg tracking-wider uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(194,133,106,0.2)]"
+                >
+                  {isRedeeming ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-5 h-5 rounded-full border-2 border-[#0d0a10] border-t-transparent animate-spin"></div>
+                      Verifying...
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Unlock className="w-6 h-6" />
+                      Unlock Access
+                    </div>
+                  )}
+                </Button>
+              </form>
+            </div>
+          </motion.div>
         </div>
       </main>
     </div>

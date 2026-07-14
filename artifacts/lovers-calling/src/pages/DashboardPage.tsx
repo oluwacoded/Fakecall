@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Plus, Copy, Trash2, PhoneForwarded, Settings, LogOut, Check } from "lucide-react";
+import { Plus, Copy, Trash2, PhoneForwarded, Settings, LogOut, Check, Lock, Unlock } from "lucide-react";
 import { useGetDashboard, useListRooms, useCreateRoom, useDeleteRoom } from "@workspace/api-client-react";
 import { useClerk } from "@clerk/react";
 import { Button } from "@/components/ui/button";
@@ -86,8 +86,8 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             {dashboard?.isSubscribed && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-mono text-primary">
-                <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-                Premium Active
+                <Unlock className="w-3 h-3" />
+                Access Granted
               </div>
             )}
             <Button variant="ghost" size="icon" onClick={() => signOut({ redirectUrl: "/" })} className="text-muted-foreground hover:text-foreground">

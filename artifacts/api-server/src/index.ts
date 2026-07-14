@@ -1,7 +1,5 @@
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
-import { runMigrations } from "stripe-replit-sync";
-import { getStripeSync } from "./lib/stripeClient";
 import app from "./app";
 import { logger } from "./lib/logger";
 
@@ -95,7 +93,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    // Clean up all rooms this socket was in
     for (const [roomCode, participants] of roomParticipants.entries()) {
       if (participants.has(socket.id)) {
         handleLeave(socket, roomCode);
@@ -114,43 +111,7 @@ io.on("connection", (socket) => {
   }
 });
 
-// ── Stripe init ────────────────────────────────────────────────────────────────
-async function initStripe() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    logger.warn("DATABASE_URL not set — skipping Stripe init");
-    return;
-  }
-
-  try {
-    logger.info("Running Stripe migrations...");
-    await runMigrations({ databaseUrl, schema: "stripe" });
-
-    const stripeSync = await getStripeSync();
-
-    const webhookBase = process.env.REPLIT_DOMAINS
-      ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-      : null;
-
-    if (webhookBase) {
-      await stripeSync.findOrCreateManagedWebhook(
-        `${webhookBase}/api/stripe/webhook`,
-      );
-    }
-
-    stripeSync.syncBackfill().catch((err) => {
-      logger.error({ err }, "Stripe backfill error");
-    });
-
-    logger.info("Stripe initialized");
-  } catch (err) {
-    logger.warn({ err }, "Stripe init failed — payments unavailable until connected");
-  }
-}
-
 // ── Start ─────────────────────────────────────────────────────────────────────
-await initStripe();
-
 httpServer.listen(port, () => {
   logger.info({ port }, "Server listening");
 });

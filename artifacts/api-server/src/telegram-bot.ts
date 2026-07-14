@@ -261,7 +261,22 @@ export function startTelegramBot(): void {
     logger.error({ err: err.error, update: err.ctx?.update }, "Telegram bot error");
   });
 
-  bot.start({ onStart: () => logger.info("Telegram bot started (long polling)") });
+  function startPolling() {
+    bot.start({ onStart: () => logger.info("Telegram bot started (long polling)") })
+      .catch((err: any) => {
+        if (err?.error_code === 409) {
+          // Another instance is still holding the long-poll connection — wait and retry
+          logger.warn("Telegram bot: 409 conflict, retrying in 15s…");
+          setTimeout(startPolling, 15_000);
+        } else {
+          // Any other fatal error — log but do NOT crash the HTTP server
+          logger.error({ err }, "Telegram bot stopped unexpectedly");
+          setTimeout(startPolling, 30_000);
+        }
+      });
+  }
+
+  startPolling();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

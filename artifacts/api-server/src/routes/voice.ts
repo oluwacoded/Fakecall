@@ -1,91 +1,79 @@
 import { Router } from "express";
 import { getAuth } from "@clerk/express";
-import { getElevenLabsVoices, transformVoice, VOICE_PRESETS } from "../lib/elevenlabs";
+import {
+  getCelebrityVoices,
+  transformVoice,
+  VOICE_PRESETS,
+} from "../lib/elevenlabs";
 import { logger } from "../lib/logger";
 
 const router = Router();
 
-// GET /voice/voices — list available ElevenLabs voices
+/**
+ * GET /voice/voices
+ * Returns base voices + celebrity voices from ElevenLabs shared library.
+ */
 router.get("/voice/voices", async (req, res) => {
   const { userId } = getAuth(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const base = [
+    { voiceId: "natural", name: "Natural", emoji: "🎙", category: "base", query: "natural" },
+    { voiceId: VOICE_PRESETS.male, name: "Deep Male", emoji: "👤", category: "base", query: "male" },
+    { voiceId: VOICE_PRESETS.female, name: "Soft Female", emoji: "👤", category: "base", query: "female" },
+  ];
 
   try {
-    const voices = await getElevenLabsVoices();
-
-    // Filter to useful voices for voice changing
-    const mapped = voices
-      .filter((v: any) => v.labels?.gender)
-      .slice(0, 20)
-      .map((v: any) => ({
-        voiceId: v.voice_id,
-        name: v.name,
-        gender: v.labels?.gender ?? "unknown",
-        preview: v.preview_url ?? null,
-      }));
-
-    // Always include the preset voices
-    const presets = [
-      {
-        voiceId: VOICE_PRESETS.male,
-        name: "Male Voice",
-        gender: "male",
-        preview: null,
-      },
-      {
-        voiceId: VOICE_PRESETS.female,
-        name: "Female Voice",
-        gender: "female",
-        preview: null,
-      },
-    ];
-
-    res.json({ voices: [...presets, ...mapped] });
-  } catch (err) {
-    logger.warn({ err }, "ElevenLabs not connected, returning preset voices");
-    // Return preset voices even if ElevenLabs not connected
+    const celebrity = await getCelebrityVoices();
     res.json({
       voices: [
-        {
-          voiceId: VOICE_PRESETS.male,
-          name: "Male Voice",
-          gender: "male",
-          preview: null,
-        },
-        {
-          voiceId: VOICE_PRESETS.female,
-          name: "Female Voice",
-          gender: "female",
-          preview: null,
-        },
+        ...base,
+        ...celebrity.map((v) => ({ ...v, category: "celebrity" })),
       ],
     });
+  } catch (err) {
+    logger.warn({ err }, "Could not fetch celebrity voices, returning base only");
+    res.json({ voices: base });
   }
 });
 
-// POST /voice/transform — transform audio chunk via ElevenLabs STS
-// Accepts: audio file as multipart/form-data, voiceId in body
+/**
+ * POST /voice/transform
+ * Accepts raw audio buffer (WAV/PCM) + x-voice-id header.
+ * Returns transformed audio as MP3.
+ */
 router.post("/voice/transform", async (req, res) => {
   const { userId } = getAuth(req);
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const voiceId = (req.headers["x-voice-id"] as string) || VOICE_PRESETS.female;
+
+  // Skip ElevenLabs for base pitch-shifted voices — client handles those
+  if (voiceId === "natural" || voiceId === "pitch-male" || voiceId === "pitch-female") {
+    res.status(204).end();
+    return;
+  }
+
+  const audioBuffer = req.body as Buffer;
+  if (!audioBuffer || audioBuffer.length < 100) {
+    res.status(400).json({ error: "Audio data required" });
+    return;
+  }
 
   try {
-    // The audio buffer comes through as raw body
-    const voiceId =
-      (req.headers["x-voice-id"] as string) || VOICE_PRESETS.female;
-    const audioBuffer = req.body as Buffer;
-
-    if (!audioBuffer || audioBuffer.length === 0) {
-      return res.status(400).json({ error: "Audio data required" });
-    }
-
     const transformed = await transformVoice(audioBuffer, voiceId);
-
     res.set("Content-Type", "audio/mpeg");
+    res.set("Cache-Control", "no-cache");
     res.send(transformed);
   } catch (err: any) {
-    logger.error({ err }, "Voice transform failed");
-    res.status(500).json({
+    logger.error({ err, voiceId }, "Voice transform failed");
+    res.status(502).json({
       error: "Voice transformation failed",
       detail: err?.message,
     });

@@ -1,28 +1,35 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useRoute } from "wouter";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { io, Socket } from "socket.io-client";
-import { Mic, MicOff, PhoneOff, Ear, Fingerprint, Waves, User, UserRound } from "lucide-react";
-import { useGetRoomByCode, useGetMe } from "@workspace/api-client-react";
+import { Mic, MicOff, PhoneOff, Ear, Fingerprint, Sparkles } from "lucide-react";
+import { useGetRoomByCode, useGetMe, useGetVoices } from "@workspace/api-client-react";
+import { useAuth } from "@clerk/react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
-type VoiceMode = "natural" | "male" | "female";
+type VoiceMode = { voiceId: string; name: string; emoji: string; category: string };
+
+const VOICE_PRESETS_MALE = "pNInz6obpgDQGcFmaJgB";
+const VOICE_PRESETS_FEMALE = "EXAVITQu4vr4xnSDxMaL";
 
 export default function CallRoomPage() {
   const [, params] = useRoute("/call/:code");
   const code = params?.code;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { getToken } = useAuth();
 
   const { data: room, isLoading: isLoadingRoom, isError: isRoomError } = useGetRoomByCode(code || "");
   const { data: user } = useGetMe();
+  const { data: voicesData, isLoading: isLoadingVoices } = useGetVoices();
 
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("natural");
-  const [peerVoiceMode, setPeerVoiceMode] = useState<VoiceMode>("natural");
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>({ voiceId: 'natural', name: 'Natural', emoji: '🎙', category: 'base' });
+  const [peerVoiceMode, setPeerVoiceMode] = useState<string>("natural");
   const [peersCount, setPeersCount] = useState(0);
+  const [activeTab, setActiveTab] = useState<"base" | "celebrity">("base");
 
   const socketRef = useRef<Socket | null>(null);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -31,12 +38,22 @@ export default function CallRoomPage() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   
+  // Celebrity voice refs
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const sampleBufferRef = useRef<Float32Array[]>([]);
+  const isTransformingRef = useRef(false);
+  const celebDestinationRef = useRef<MediaStreamDestinationNode | null>(null);
+  const authTokenRef = useRef<string>("");
+
   // Elements
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>(0);
 
-  // Initialize Audio processing
+  useEffect(() => {
+    getToken().then(t => { if (t) authTokenRef.current = t; });
+  }, [getToken]);
+
   const initAudio = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -57,7 +74,7 @@ export default function CallRoomPage() {
       processedStreamRef.current = destination.stream;
 
       // Apply initial processing (natural = just pass through)
-      applyVoiceProcessing("natural", source, destination, audioCtx);
+      source.connect(analyser).connect(destination);
       
       return true;
     } catch (err) {
@@ -71,63 +88,138 @@ export default function CallRoomPage() {
     }
   }, [toast]);
 
-  const applyVoiceProcessing = (mode: VoiceMode, source: MediaStreamAudioSourceNode, destination: MediaStreamAudioDestinationNode, ctx: AudioContext) => {
-    // Disconnect previous connections
-    source.disconnect();
-    
-    if (mode === "natural") {
-      source.connect(analyserRef.current!).connect(destination);
-    } else if (mode === "male") {
-      // Bass boost approximation for male
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowshelf";
-      filter.frequency.value = 300;
-      filter.gain.value = 8;
-      
-      source.connect(filter).connect(analyserRef.current!).connect(destination);
-    } else if (mode === "female") {
-      // Treble boost approximation for female
-      const filter = ctx.createBiquadFilter();
-      filter.type = "highshelf";
-      filter.frequency.value = 3000;
-      filter.gain.value = 6;
-      
-      source.connect(filter).connect(analyserRef.current!).connect(destination);
-    }
-  };
+  const startCelebrityTransform = useCallback((voiceId: string) => {
+    if (!audioContextRef.current || !localStreamRef.current) return;
+    const ctx = audioContextRef.current;
+    const sampleRate = ctx.sampleRate;
+    const chunkSeconds = 2.0;
+    const chunkSamples = Math.floor(sampleRate * chunkSeconds);
 
-  const handleVoiceModeChange = (mode: VoiceMode) => {
-    setVoiceMode(mode);
-    if (audioContextRef.current && localStreamRef.current && processedStreamRef.current) {
-      const source = audioContextRef.current.createMediaStreamSource(localStreamRef.current);
-      // Wait, we can't recreate source from same stream easily without errors sometimes.
-      // Actually we just need to rebuild the graph, but keeping it simple: we can just reconstruct the processing nodes.
-      // For safety, let's just re-init or maintain the source globally.
+    const source = ctx.createMediaStreamSource(localStreamRef.current);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const celebDest = ctx.createMediaStreamDestination();
+    celebDestinationRef.current = celebDest;
+
+    source.connect(analyserRef.current!);
+    source.connect(processor);
+    processor.connect(ctx.destination);
+
+    sampleBufferRef.current = [];
+    let totalSamples = 0;
+
+    processor.onaudioprocess = (e) => {
+      const channelData = e.inputBuffer.getChannelData(0);
+      sampleBufferRef.current.push(new Float32Array(channelData));
+      totalSamples += channelData.length;
+
+      if (totalSamples >= chunkSamples && !isTransformingRef.current) {
+        isTransformingRef.current = true;
+        const combined = new Float32Array(totalSamples);
+        let offset = 0;
+        for (const chunk of sampleBufferRef.current) {
+          combined.set(chunk, offset);
+          offset += chunk.length;
+        }
+        sampleBufferRef.current = [];
+        totalSamples = 0;
+
+        const wavBuffer = encodeWAV(combined, sampleRate);
+
+        fetch('/api/voice/transform', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'audio/wav',
+            'x-voice-id': voiceId,
+            'Authorization': `Bearer ${authTokenRef.current}`,
+          },
+          body: wavBuffer,
+        })
+          .then(async (res) => {
+            if (!res.ok) throw new Error('Transform failed');
+            const arrayBuf = await res.arrayBuffer();
+            const decoded = await ctx.decodeAudioData(arrayBuf);
+            const bufSrc = ctx.createBufferSource();
+            bufSrc.buffer = decoded;
+            bufSrc.connect(celebDest);
+            bufSrc.start();
+          })
+          .catch(console.error)
+          .finally(() => { isTransformingRef.current = false; });
+      }
+    };
+
+    scriptProcessorRef.current = processor;
+
+    const audioTrack = celebDest.stream.getAudioTracks()[0];
+    if (audioTrack) {
+      processedStreamRef.current = celebDest.stream;
+      peersRef.current.forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
+        if (sender) sender.replaceTrack(audioTrack);
+      });
     }
-    
-    // Easier way: just re-init everything to change voice mode cleanly
+  }, []);
+
+  const stopCelebrityTransform = useCallback(() => {
+    if (scriptProcessorRef.current) {
+      scriptProcessorRef.current.disconnect();
+      scriptProcessorRef.current.onaudioprocess = null;
+      scriptProcessorRef.current = null;
+    }
+    celebDestinationRef.current = null;
+    sampleBufferRef.current = [];
+    isTransformingRef.current = false;
+  }, []);
+
+  const handleVoiceModeChange = useCallback(async (voice: VoiceMode) => {
+    setVoiceMode(voice);
+    stopCelebrityTransform();
+
     if (localStreamRef.current) {
-      const tracks = localStreamRef.current.getTracks();
-      tracks.forEach(t => t.stop());
+      localStreamRef.current.getTracks().forEach(t => t.stop());
     }
-    
-    initAudio().then(() => {
-      // Replace tracks in existing peers
-      if (processedStreamRef.current) {
-        const audioTrack = processedStreamRef.current.getAudioTracks()[0];
-        audioTrack.enabled = !isMuted;
-        peersRef.current.forEach(pc => {
-          const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
-          if (sender) {
-            sender.replaceTrack(audioTrack);
-          }
-        });
+    const audioReady = await initAudio();
+    if (!audioReady) return;
+
+    if (voice.category === 'celebrity' && voice.voiceId !== 'natural') {
+      startCelebrityTransform(voice.voiceId);
+    } else {
+      if (audioContextRef.current && localStreamRef.current) {
+        const ctx = audioContextRef.current;
+        const source = ctx.createMediaStreamSource(localStreamRef.current);
+        const dest = ctx.createMediaStreamDestination();
+        processedStreamRef.current = dest.stream;
+
+        if (voice.voiceId === VOICE_PRESETS_MALE) {
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'lowshelf';
+          filter.frequency.value = 300;
+          filter.gain.value = 8;
+          source.connect(filter).connect(analyserRef.current!).connect(dest);
+        } else if (voice.voiceId === VOICE_PRESETS_FEMALE) {
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'highshelf';
+          filter.frequency.value = 3000;
+          filter.gain.value = 6;
+          source.connect(filter).connect(analyserRef.current!).connect(dest);
+        } else {
+          source.connect(analyserRef.current!).connect(dest);
+        }
+
+        const audioTrack = dest.stream.getAudioTracks()[0];
+        if (audioTrack) {
+          peersRef.current.forEach(pc => {
+            const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
+            if (sender) sender.replaceTrack(audioTrack);
+          });
+        }
       }
-      if (socketRef.current) {
-        socketRef.current.emit('voice-mode-change', { roomCode: code, mode });
-      }
-    });
-  };
+    }
+
+    if (socketRef.current) {
+      socketRef.current.emit('voice-mode-change', { roomCode: code, mode: voice.voiceId });
+    }
+  }, [stopCelebrityTransform, startCelebrityTransform, initAudio, code]);
 
   const toggleMute = () => {
     const newMuted = !isMuted;
@@ -145,7 +237,6 @@ export default function CallRoomPage() {
 
   useEffect(() => {
     if (!code) return;
-    
     let isSubscribed = true;
     
     const setup = async () => {
@@ -238,7 +329,7 @@ export default function CallRoomPage() {
         }
       });
 
-      socket.on('voice-mode-change', ({ mode }: { mode: VoiceMode }) => {
+      socket.on('voice-mode-change', ({ mode }: { mode: string }) => {
         setPeerVoiceMode(mode);
       });
 
@@ -261,6 +352,7 @@ export default function CallRoomPage() {
 
     return () => {
       isSubscribed = false;
+      stopCelebrityTransform();
       if (socketRef.current) {
         socketRef.current.emit('leave-room', code);
         socketRef.current.disconnect();
@@ -277,9 +369,8 @@ export default function CallRoomPage() {
       }
       cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [code]);
+  }, [code, initAudio, stopCelebrityTransform]);
 
-  // Waveform Animation
   useEffect(() => {
     const canvas = waveformCanvasRef.current;
     if (!canvas) return;
@@ -288,7 +379,6 @@ export default function CallRoomPage() {
 
     const draw = () => {
       animationFrameRef.current = requestAnimationFrame(draw);
-      
       const width = canvas.width;
       const height = canvas.height;
       ctx.clearRect(0, 0, width, height);
@@ -300,7 +390,7 @@ export default function CallRoomPage() {
       analyserRef.current.getByteTimeDomainData(dataArray);
 
       ctx.lineWidth = 2;
-      ctx.strokeStyle = '#c2856a'; // primary
+      ctx.strokeStyle = '#c2856a';
       ctx.beginPath();
 
       const sliceWidth = width * 1.0 / bufferLength;
@@ -309,27 +399,16 @@ export default function CallRoomPage() {
       for (let i = 0; i < bufferLength; i++) {
         const v = dataArray[i] / 128.0;
         const y = v * height / 2;
-
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
         x += sliceWidth;
       }
-
       ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
     };
-
     draw();
-    
-    return () => {
-      cancelAnimationFrame(animationFrameRef.current);
-    };
+    return () => cancelAnimationFrame(animationFrameRef.current);
   }, []);
-
 
   if (isRoomError || !room) {
     return (
@@ -343,9 +422,12 @@ export default function CallRoomPage() {
     );
   }
 
+  const voices = (voicesData?.voices as any[]) ?? [];
+  const baseVoices = voices.filter(v => v.category === 'base');
+  const celebVoices = voices.filter(v => v.category === 'celebrity');
+
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col relative overflow-hidden">
-      {/* Background Ambience */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(194,133,106,0.05)_0%,rgba(13,10,16,1)_70%)] pointer-events-none"></div>
       
       <header className="absolute top-0 w-full p-6 flex justify-between items-center z-10">
@@ -358,35 +440,19 @@ export default function CallRoomPage() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center justify-center relative z-10 p-6 w-full max-w-4xl mx-auto">
+      <main className="flex-1 flex flex-col items-center justify-center relative z-10 p-6 w-full max-w-4xl mx-auto pt-24 pb-8">
         
-        {/* Visualizer / Centerpiece */}
-        <div className="relative w-64 h-64 md:w-80 md:h-80 flex items-center justify-center mb-16">
+        <div className="relative w-48 h-48 md:w-64 md:h-64 flex items-center justify-center mb-8 shrink-0">
           <motion.div 
-            animate={{ 
-              scale: isConnected ? [1, 1.05, 1] : 1,
-              opacity: isConnected ? [0.5, 0.8, 0.5] : 0.2
-            }}
-            transition={{ 
-              duration: 4, 
-              repeat: Infinity,
-              ease: "easeInOut" 
-            }}
+            animate={{ scale: isConnected ? [1, 1.05, 1] : 1, opacity: isConnected ? [0.5, 0.8, 0.5] : 0.2 }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
             className="absolute inset-0 rounded-full border border-primary/20 bg-primary/5"
           />
           <motion.div 
-            animate={{ 
-              scale: isConnected ? [1, 1.1, 1] : 1,
-            }}
-            transition={{ 
-              duration: 3, 
-              repeat: Infinity,
-              ease: "easeInOut",
-              delay: 0.5
-            }}
+            animate={{ scale: isConnected ? [1, 1.1, 1] : 1 }}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
             className="absolute inset-4 rounded-full border border-primary/30"
           />
-          
           <div className="absolute w-full h-full rounded-full flex items-center justify-center z-10">
             {peersCount === 0 ? (
               <div className="text-center">
@@ -399,28 +465,118 @@ export default function CallRoomPage() {
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="w-full max-w-md bg-card/80 backdrop-blur-xl border border-card-border rounded-3xl p-6 shadow-2xl">
-          <div className="grid grid-cols-3 gap-2 bg-[#120e15] rounded-xl p-1 mb-8 border border-border">
-            {(["natural", "male", "female"] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => handleVoiceModeChange(mode)}
-                className={`py-3 flex flex-col items-center justify-center gap-1 rounded-lg transition-all ${
-                  voiceMode === mode 
-                    ? "bg-primary/20 text-primary shadow-[0_0_10px_rgba(194,133,106,0.1)]" 
-                    : "text-muted-foreground hover:bg-card hover:text-foreground"
-                }`}
-              >
-                {mode === "natural" && <Fingerprint className="w-4 h-4" />}
-                {mode === "male" && <User className="w-4 h-4" />}
-                {mode === "female" && <UserRound className="w-4 h-4" />}
-                <span className="text-[10px] uppercase font-mono tracking-widest">{mode}</span>
-              </button>
-            ))}
+        <div className="w-full max-w-md bg-card/80 backdrop-blur-xl border border-card-border rounded-3xl p-6 shadow-2xl flex flex-col min-h-[350px]">
+          
+          {/* Tabs */}
+          <div className="flex bg-[#120e15] rounded-xl p-1 mb-6 border border-border shrink-0">
+            <button
+              onClick={() => setActiveTab("base")}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "base" ? "bg-primary/20 text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Base
+            </button>
+            <button
+              onClick={() => setActiveTab("celebrity")}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                activeTab === "celebrity" ? "bg-primary/20 text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Celebrity
+            </button>
           </div>
 
-          <div className="flex items-center justify-center gap-6">
+          {/* Voice Picker Grid */}
+          <div className="flex-1 overflow-y-auto mb-6 pr-1 custom-scrollbar">
+            {isLoadingVoices ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[1,2,3,4].map(i => (
+                  <div key={i} className="h-24 bg-muted/20 animate-pulse rounded-xl border border-border/50"></div>
+                ))}
+              </div>
+            ) : (
+              <AnimatePresence mode="wait">
+                {activeTab === "base" && (
+                  <motion.div 
+                    key="base"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="grid grid-cols-3 gap-3"
+                  >
+                    {[
+                      { voiceId: 'natural', name: 'Natural', emoji: '🎙', category: 'base' },
+                      ...baseVoices.map(v => ({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'base' }))
+                    ].map((v) => {
+                      const isSelected = voiceMode.voiceId === v.voiceId;
+                      return (
+                        <button
+                          key={v.voiceId}
+                          onClick={() => handleVoiceModeChange(v)}
+                          className={`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
+                            isSelected 
+                              ? "bg-primary/10 border-primary text-primary shadow-[0_0_15px_rgba(194,133,106,0.15)]" 
+                              : "bg-[#120e15] border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                          }`}
+                        >
+                          <span className="text-2xl">{v.emoji}</span>
+                          <span className="text-[10px] font-mono uppercase tracking-widest text-center">{v.name}</span>
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+                
+                {activeTab === "celebrity" && (
+                  <motion.div 
+                    key="celebrity"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="grid grid-cols-2 gap-3"
+                  >
+                    {celebVoices.map((v) => {
+                      const isSelected = voiceMode.voiceId === v.voiceId;
+                      return (
+                        <button
+                          key={v.voiceId}
+                          onClick={() => handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'celebrity' })}
+                          className={`relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all overflow-hidden group ${
+                            isSelected 
+                              ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(194,133,106,0.2)]" 
+                              : "bg-[#120e15] border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          
+                          <span className="text-3xl mb-2">{v.emoji || '👤'}</span>
+                          <span className={`text-sm font-medium mb-1 ${isSelected ? 'text-primary' : 'text-foreground'}`}>{v.name}</span>
+                          <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted-foreground font-mono">
+                            <Sparkles className="w-3 h-3 text-secondary" /> AI Voice
+                          </div>
+
+                          {isSelected && (
+                            <div className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-mono tracking-widest uppercase bg-primary/20 text-primary border border-primary/30">
+                              <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
+                              LIVE
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {celebVoices.length > 0 && (
+                      <div className="col-span-2 text-center mt-2">
+                        <p className="text-[10px] text-muted-foreground font-mono">Celebrity voices have ~2s processing delay</p>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
+          </div>
+
+          <div className="flex items-center justify-center gap-6 mt-auto pt-4 border-t border-border shrink-0">
             <Button
               variant="outline"
               size="icon"
@@ -444,8 +600,53 @@ export default function CallRoomPage() {
             </Button>
           </div>
         </div>
-        
       </main>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.1);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: var(--color-border);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: var(--color-primary);
+        }
+      `}</style>
     </div>
   );
+}
+
+// WAV Encoder Utility
+function encodeWAV(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+  return buffer;
 }

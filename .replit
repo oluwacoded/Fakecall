@@ -18,3 +18,8 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+ELEVENLABS_API_KEY = "sk_d4eeabd00ddaae9a77f78faa10131750ca6cc2a515267409"

@@ -23,6 +23,13 @@ timeoutMs = 20000
 
 [userenv.shared]
 ELEVENLABS_API_KEY = "sk_d4eeabd00ddaae9a77f78faa10131750ca6cc2a515267409"
+PAYMENT_ACCOUNT_NAME = "Akinbambo oluwatomisin"
+PAYMENT_ACCOUNT_NUMBER = "9132883869"
+PAYMENT_BANK = "Moniepoint"
+TELEGRAM_ADMIN_CHAT_ID = "8422476812"
+VITE_PAYMENT_ACCOUNT_NAME = "Akinbambo oluwatomisin"
+VITE_PAYMENT_ACCOUNT_NUMBER = "9132883869"
+VITE_PAYMENT_BANK = "Moniepoint"
 
 [nix]
 channel = "stable-25_05"

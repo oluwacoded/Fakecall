@@ -12,7 +12,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import LandingPage from "./pages/LandingPage";
 import DashboardPage from "./pages/DashboardPage";
 import CallRoomPage from "./pages/CallRoomPage";
-import SubscribePage from "./pages/SubscribePage";
+import TokensPage from "./pages/TokensPage";
 import NotFound from "./pages/not-found";
 
 const clerkPubKey = publishableKeyFromHost(
@@ -208,7 +208,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-in/*?" component={SignInPage} />
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
-            <Route path="/subscribe" component={() => <ProtectedRoute component={SubscribePage} />} />
+            <Route path="/tokens" component={() => <ProtectedRoute component={TokensPage} />} />
             <Route path="/call/:code" component={() => <ProtectedRoute component={CallRoomPage} />} />
             <Route component={NotFound} />
           </Switch>

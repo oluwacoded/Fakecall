@@ -38,12 +38,11 @@ router.post("/rooms", async (req, res) => {
 
   const user = await storage.getUser(userId);
   if (!user) return res.status(404).json({ error: "User not found" });
-  if (!user.isSubscribed) {
-    return res
-      .status(403)
-      .json({ error: "Subscription required to create rooms" });
+  if ((user.tokens ?? 0) < 1) {
+    return res.status(403).json({ error: "Not enough tokens. Buy tokens to start a call.", noTokens: true });
   }
 
+  await storage.deductTokens(userId, 1);
   const room = await storage.createRoom(userId);
   res.status(201).json(formatRoom(room));
 });

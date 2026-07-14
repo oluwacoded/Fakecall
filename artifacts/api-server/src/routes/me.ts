@@ -17,7 +17,7 @@ router.get("/me", async (req, res) => {
     email: user.email,
     name: user.name,
     isSubscribed: user.isSubscribed,
-    stripeCustomerId: user.stripeCustomerId,
+    tokens: user.tokens ?? 0,
     createdAt: user.createdAt.toISOString(),
   });
 });
@@ -37,7 +37,7 @@ router.post("/me", async (req, res) => {
     email: user.email,
     name: user.name,
     isSubscribed: user.isSubscribed,
-    stripeCustomerId: user.stripeCustomerId,
+    tokens: user.tokens ?? 0,
     createdAt: user.createdAt.toISOString(),
   });
 });
@@ -64,6 +64,7 @@ router.get("/dashboard", async (req, res) => {
       endedAt: r.endedAt?.toISOString() ?? null,
     })),
     isSubscribed: user.isSubscribed,
+    tokens: user.tokens ?? 0,
   });
 });
 

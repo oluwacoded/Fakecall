@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startTelegramBot } from "./telegram-bot";
 
 const rawPort = process.env["PORT"];
 if (!rawPort) throw new Error("PORT environment variable is required");
@@ -115,3 +116,6 @@ io.on("connection", (socket) => {
 httpServer.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
+
+// ── Telegram bot (long-polling, non-blocking) ─────────────────────────────────
+startTelegramBot();

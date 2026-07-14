@@ -1,15 +1,15 @@
-# [Project name]
+# Lovers Calling
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A private couples calling app with real-time voice disguise, WebRTC video/audio calls, access codes, and Stripe subscriptions.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/lovers-calling run dev` — run the frontend (port 20060)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — auto-injected by Replit (postgresql://...heliumdb)
 
 ## Stack
 

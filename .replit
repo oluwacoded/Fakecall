@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -23,3 +23,6 @@ timeoutMs = 20000
 
 [userenv.shared]
 ELEVENLABS_API_KEY = "sk_d4eeabd00ddaae9a77f78faa10131750ca6cc2a515267409"
+
+[nix]
+channel = "stable-25_05"

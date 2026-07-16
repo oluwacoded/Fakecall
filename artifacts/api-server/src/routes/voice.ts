@@ -5,7 +5,9 @@ import {
   CELEBRITY_QUERIES,
   transformVoice,
   previewVoice,
+  getVoicePreviewUrl,
   BASE_VOICES,
+  VOICE_PRESETS,
 } from "../lib/elevenlabs";
 import { logger } from "../lib/logger";
 
@@ -68,10 +70,28 @@ router.get("/voice/preview/:voiceId", async (req, res) => {
     return;
   }
 
+  // Fast path: use ElevenLabs' pre-generated preview_url (free, no TTS credits)
+  const cachedPreviewUrl = getVoicePreviewUrl(voiceId);
+  if (cachedPreviewUrl) {
+    try {
+      const upstream = await fetch(cachedPreviewUrl, { signal: AbortSignal.timeout(10_000) });
+      if (upstream.ok) {
+        res.set("Content-Type", upstream.headers.get("content-type") ?? "audio/mpeg");
+        res.set("Cache-Control", "public, max-age=86400");
+        const buf = await upstream.arrayBuffer();
+        res.send(Buffer.from(buf));
+        return;
+      }
+    } catch {
+      // fall through to TTS
+    }
+  }
+
+  // Fallback: generate a short TTS sample (works for base/preset voices)
   try {
     const audio = await previewVoice(voiceId);
     res.set("Content-Type", "audio/mpeg");
-    res.set("Cache-Control", "public, max-age=86400"); // cache 24h — voice doesn't change
+    res.set("Cache-Control", "public, max-age=86400");
     res.send(audio);
   } catch (err: any) {
     logger.error({ err, voiceId }, "Voice preview failed");

@@ -50,8 +50,13 @@ export default function CallRoomPage() {
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>(0);
 
+  // Keep the Clerk token fresh — it expires; refresh every 50 s so voice
+  // transforms never hit a 401 mid-call.
   useEffect(() => {
-    getToken().then(t => { if (t) authTokenRef.current = t; });
+    const refresh = () => getToken().then(t => { if (t) authTokenRef.current = t; });
+    refresh();
+    const id = setInterval(refresh, 50_000);
+    return () => clearInterval(id);
   }, [getToken]);
 
   const initAudio = useCallback(async () => {

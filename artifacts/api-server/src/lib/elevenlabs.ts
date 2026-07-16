@@ -54,12 +54,15 @@ export const CELEBRITY_QUERIES = [
 ];
 
 // In-memory cache: query → voice result (null = not found)
-const voiceCache = new Map<string, { voiceId: string; name: string } | null>();
+const voiceCache = new Map<string, { voiceId: string; name: string; previewUrl?: string } | null>();
+
+// voiceId → previewUrl (populated as voices are discovered)
+const previewUrlCache = new Map<string, string>();
 
 async function searchSharedVoice(
   term: string,
   apiKey: string,
-): Promise<{ voiceId: string; name: string } | null> {
+): Promise<{ voiceId: string; name: string; previewUrl?: string } | null> {
   try {
     const url = `https://api.elevenlabs.io/v1/shared-voices?search=${encodeURIComponent(term)}&page_size=5`;
     const resp = await fetch(url, {
@@ -67,18 +70,31 @@ async function searchSharedVoice(
       signal: AbortSignal.timeout(8_000),
     });
     if (!resp.ok) return null;
-    const data = (await resp.json()) as { voices?: Array<{ voice_id: string; name: string; use_case?: string; category?: string }> };
+    const data = (await resp.json()) as {
+      voices?: Array<{ voice_id: string; name: string; preview_url?: string; use_case?: string; category?: string }>;
+    };
     const first = data.voices?.[0];
-    return first ? { voiceId: first.voice_id, name: first.name } : null;
+    if (!first) return null;
+    const previewUrl = first.preview_url ?? undefined;
+    if (previewUrl) previewUrlCache.set(first.voice_id, previewUrl);
+    return { voiceId: first.voice_id, name: first.name, previewUrl };
   } catch {
     return null;
   }
 }
 
+/**
+ * Returns the cached ElevenLabs preview_url for a voice, or null if unknown.
+ * This is free — it uses the pre-generated sample from the voice library.
+ */
+export function getVoicePreviewUrl(voiceId: string): string | null {
+  return previewUrlCache.get(voiceId) ?? null;
+}
+
 export async function findCelebrityVoice(
   query: string,
   altTerms: string[] = [],
-): Promise<{ voiceId: string; name: string } | null> {
+): Promise<{ voiceId: string; name: string; previewUrl?: string } | null> {
   if (voiceCache.has(query)) return voiceCache.get(query)!;
 
   const apiKey = getApiKey();
@@ -97,7 +113,7 @@ export async function findCelebrityVoice(
 }
 
 export async function getCelebrityVoices(): Promise<
-  Array<{ voiceId: string; name: string; emoji: string; query: string; gender: string }>
+  Array<{ voiceId: string; name: string; emoji: string; query: string; gender: string; previewUrl?: string }>
 > {
   const results = await Promise.all(
     CELEBRITY_QUERIES.map(async (c) => {
@@ -109,6 +125,7 @@ export async function getCelebrityVoices(): Promise<
         emoji: c.emoji,
         query: c.query,
         gender: c.gender,
+        previewUrl: voice.previewUrl,
       };
     }),
   );
@@ -118,6 +135,7 @@ export async function getCelebrityVoices(): Promise<
     emoji: string;
     query: string;
     gender: string;
+    previewUrl?: string;
   }>;
 }
 

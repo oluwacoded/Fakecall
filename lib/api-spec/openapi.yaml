@@ -3,20 +3,28 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Lovers Calling App API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: users
+    description: User operations
+  - name: rooms
+    description: Call room operations
+  - name: payments
+    description: Payment operations
+  - name: voice
+    description: Voice transformation operations
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +32,228 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [users]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: syncMe
+      tags: [users]
+      summary: Sync Clerk user to database
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSync"
+      responses:
+        "200":
+          description: Synced user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+
+  /subscription:
+    get:
+      operationId: getSubscription
+      tags: [payments]
+      summary: Get current user subscription status
+      responses:
+        "200":
+          description: Subscription info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionStatus"
+        "401":
+          description: Unauthorized
+
+  /plans:
+    get:
+      operationId: getPlans
+      tags: [payments]
+      summary: List available subscription plans
+      responses:
+        "200":
+          description: List of plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlansResponse"
+
+  /checkout:
+    post:
+      operationId: createCheckout
+      tags: [payments]
+      summary: Create Stripe checkout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutInput"
+      responses:
+        "200":
+          description: Checkout session URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutResponse"
+        "401":
+          description: Unauthorized
+
+  /portal:
+    post:
+      operationId: createPortal
+      tags: [payments]
+      summary: Create Stripe customer portal session
+      responses:
+        "200":
+          description: Portal session URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalResponse"
+        "401":
+          description: Unauthorized
+
+  /rooms:
+    get:
+      operationId: listRooms
+      tags: [rooms]
+      summary: List current user's call rooms
+      responses:
+        "200":
+          description: List of rooms
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomList"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: createRoom
+      tags: [rooms]
+      summary: Create a new call room
+      responses:
+        "201":
+          description: Created room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Subscription required
+
+  /rooms/code/{code}:
+    get:
+      operationId: getRoomByCode
+      tags: [rooms]
+      summary: Get room by join code
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Room details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "404":
+          description: Room not found
+
+  /rooms/{id}:
+    get:
+      operationId: getRoom
+      tags: [rooms]
+      summary: Get room by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Room details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "404":
+          description: Room not found
+    delete:
+      operationId: deleteRoom
+      tags: [rooms]
+      summary: End and delete a call room
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Room deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Room not found
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [users]
+      summary: Get dashboard summary for current user
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          description: Unauthorized
+
+  /voice/voices:
+    get:
+      operationId: getVoices
+      tags: [voice]
+      summary: Get available ElevenLabs voices for transformation
+      responses:
+        "200":
+          description: Available voices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceList"
+        "401":
+          description: Unauthorized
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +264,196 @@ components:
       required:
         - status
 
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: ["string", "null"]
+        isSubscribed:
+          type: boolean
+        stripeCustomerId:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - email
+        - isSubscribed
+        - createdAt
+
+    UserSync:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: ["string", "null"]
+      required:
+        - email
+
+    Room:
+      type: object
+      properties:
+        id:
+          type: string
+        hostUserId:
+          type: string
+        callCode:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+        endedAt:
+          type: ["string", "null"]
+      required:
+        - id
+        - hostUserId
+        - callCode
+        - isActive
+        - createdAt
+
+    RoomList:
+      type: object
+      properties:
+        rooms:
+          type: array
+          items:
+            $ref: "#/components/schemas/Room"
+      required:
+        - rooms
+
+    SubscriptionStatus:
+      type: object
+      properties:
+        isSubscribed:
+          type: boolean
+        status:
+          type: ["string", "null"]
+        currentPeriodEnd:
+          type: ["string", "null"]
+        cancelAtPeriodEnd:
+          type: boolean
+        planName:
+          type: ["string", "null"]
+      required:
+        - isSubscribed
+        - cancelAtPeriodEnd
+
+    Plan:
+      type: object
+      properties:
+        priceId:
+          type: string
+        productId:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        amount:
+          type: number
+        currency:
+          type: string
+        interval:
+          type: string
+      required:
+        - priceId
+        - productId
+        - name
+        - amount
+        - currency
+        - interval
+
+    PlansResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plan"
+      required:
+        - plans
+
+    CheckoutInput:
+      type: object
+      properties:
+        priceId:
+          type: string
+      required:
+        - priceId
+
+    CheckoutResponse:
+      type: object
+      properties:
+        url:
+          type: string
+      required:
+        - url
+
+    PortalResponse:
+      type: object
+      properties:
+        url:
+          type: string
+      required:
+        - url
+
+    Dashboard:
+      type: object
+      properties:
+        totalRooms:
+          type: number
+        activeRooms:
+          type: number
+        recentRooms:
+          type: array
+          items:
+            $ref: "#/components/schemas/Room"
+        isSubscribed:
+          type: boolean
+      required:
+        - totalRooms
+        - activeRooms
+        - recentRooms
+        - isSubscribed
+
+    Voice:
+      type: object
+      properties:
+        voiceId:
+          type: string
+        name:
+          type: string
+        gender:
+          type: string
+        preview:
+          type: ["string", "null"]
+      required:
+        - voiceId
+        - name
+        - gender
+
+    VoiceList:
+      type: object
+      properties:
+        voices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Voice"
+      required:
+        - voices
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: ["string", "null"]
+      required:
+        - success

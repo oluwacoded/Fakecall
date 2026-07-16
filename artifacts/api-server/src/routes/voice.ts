@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getAuth } from "@clerk/express";
 import {
   getCelebrityVoices,
+  CELEBRITY_QUERIES,
   transformVoice,
   previewVoice,
   BASE_VOICES,
@@ -13,6 +14,7 @@ const router = Router();
 /**
  * GET /voice/voices
  * Returns base voices + celebrity voices (male & female) from ElevenLabs.
+ * Auth required (voice transform costs API credits).
  */
 router.get("/voice/voices", async (req, res) => {
   const { userId } = getAuth(req);
@@ -23,10 +25,24 @@ router.get("/voice/voices", async (req, res) => {
 
   try {
     const celebrity = await getCelebrityVoices();
+
+    // If ElevenLabs search returned fewer voices than expected, fill in
+    // name/emoji placeholders so the UI always shows the full list.
+    const foundIds = new Set(celebrity.map((v) => v.query));
+    const placeholders = CELEBRITY_QUERIES.filter((q) => !foundIds.has(q.query)).map((q) => ({
+      voiceId: `pending:${q.query}`,
+      name: q.label,
+      emoji: q.emoji,
+      query: q.query,
+      gender: q.gender,
+      pending: true,
+    }));
+
     res.json({
       voices: [
         ...BASE_VOICES,
         ...celebrity.map((v) => ({ ...v, category: "celebrity" })),
+        ...placeholders.map((v) => ({ ...v, category: "celebrity" })),
       ],
     });
   } catch (err) {

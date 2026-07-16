@@ -595,26 +595,35 @@ export default function CallRoomPage() {
                     className="grid grid-cols-2 gap-3"
                   >
                     {(celebGender === "male" ? maleCelebs : femaleCelebs).map((v: any) => {
-                      const isSelected = voiceMode.voiceId === v.voiceId;
+                      const isPending = v.pending || (v.voiceId as string)?.startsWith("pending:");
+                      const isSelected = !isPending && voiceMode.voiceId === v.voiceId;
                       const isPreviewing = previewingVoiceId === v.voiceId;
                       return (
                         <button
                           key={v.voiceId}
-                          onClick={() => handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'celebrity', gender: v.gender })}
+                          disabled={isPending}
+                          onClick={() => !isPending && handleVoiceModeChange({ voiceId: v.voiceId, name: v.name, emoji: v.emoji || '👤', category: 'celebrity', gender: v.gender })}
                           className={`relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all overflow-hidden group ${
-                            isSelected 
+                            isPending
+                              ? "bg-[#0e0b12] border-border/30 opacity-40 cursor-not-allowed"
+                              : isSelected 
                               ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(194,133,106,0.2)]" 
                               : "bg-[#120e15] border-border hover:border-primary/50"
                           }`}
+                          title={isPending ? "Voice not available in library" : undefined}
                         >
-                          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          {!isPending && <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>}
                           <span className="text-3xl mb-2">{v.emoji || '👤'}</span>
-                          <span className={`text-sm font-medium mb-1 text-center leading-tight ${isSelected ? 'text-primary' : 'text-foreground'}`}>{v.name}</span>
-                          <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted-foreground font-mono">
-                            <Sparkles className="w-3 h-3 text-secondary" /> AI Voice
-                          </div>
+                          <span className={`text-sm font-medium mb-1 text-center leading-tight ${isSelected ? 'text-primary' : isPending ? 'text-muted-foreground/50' : 'text-foreground'}`}>{v.name}</span>
+                          {isPending ? (
+                            <div className="text-[8px] text-muted-foreground/40 font-mono">Unavailable</div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-muted-foreground font-mono">
+                              <Sparkles className="w-3 h-3 text-secondary" /> AI Voice
+                            </div>
+                          )}
                           {/* Live badge OR preview button */}
-                          {isSelected ? (
+                          {!isPending && (isSelected ? (
                             <div className="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-mono tracking-widest uppercase bg-primary/20 text-primary border border-primary/30">
                               <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
                               LIVE
@@ -627,7 +636,7 @@ export default function CallRoomPage() {
                             >
                               {isPreviewing ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
                             </button>
-                          )}
+                          ))}
                         </button>
                       );
                     })}
@@ -639,7 +648,9 @@ export default function CallRoomPage() {
                     )}
                     {celebVoices.length > 0 && (
                       <div className="col-span-2 text-center mt-1">
-                        <p className="text-[9px] text-muted-foreground font-mono">Powered by ElevenLabs AI · ~2s processing delay</p>
+                        <p className="text-[9px] text-muted-foreground font-mono">
+                          Powered by ElevenLabs AI · ~2s delay · {celebVoices.filter((v: any) => !v.pending && !v.voiceId?.startsWith('pending:')).length} voices available
+                        </p>
                       </div>
                     )}
                   </motion.div>

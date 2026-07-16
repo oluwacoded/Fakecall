@@ -18,76 +18,82 @@ function getApiKey(): string {
 
 export const CELEBRITY_QUERIES = [
   // ── Male celebrities ───────────────────────────────────────────────────────
-  { query: "donald trump",            label: "Donald Trump",        emoji: "🇺🇸", gender: "male" },
-  { query: "elon musk",               label: "Elon Musk",           emoji: "🚀", gender: "male" },
-  { query: "morgan freeman",          label: "Morgan Freeman",      emoji: "🎬", gender: "male" },
-  { query: "arnold schwarzenegger",   label: "Arnold",              emoji: "💪", gender: "male" },
-  { query: "barack obama",            label: "Barack Obama",        emoji: "🌟", gender: "male" },
-  { query: "joe biden",               label: "Joe Biden",           emoji: "🦅", gender: "male" },
-  { query: "joe rogan",               label: "Joe Rogan",           emoji: "🎙️", gender: "male" },
-  { query: "jordan peterson",         label: "Jordan Peterson",     emoji: "🦞", gender: "male" },
-  { query: "kevin hart",              label: "Kevin Hart",          emoji: "😂", gender: "male" },
-  { query: "the rock dwayne johnson", label: "The Rock",            emoji: "🪨", gender: "male" },
-  { query: "will smith",              label: "Will Smith",          emoji: "🎥", gender: "male" },
-  { query: "samuel jackson",          label: "Samuel L. Jackson",   emoji: "🎭", gender: "male" },
-  { query: "eminem",                  label: "Eminem",              emoji: "🎤", gender: "male" },
-  { query: "drake",                   label: "Drake",               emoji: "🦉", gender: "male" },
-  { query: "kanye west",              label: "Kanye West",          emoji: "🎵", gender: "male" },
-  { query: "snoop dogg",              label: "Snoop Dogg",          emoji: "🎶", gender: "male" },
-  { query: "gordon ramsay",           label: "Gordon Ramsay",       emoji: "👨‍🍳", gender: "male" },
-  { query: "conor mcgregor",          label: "Conor McGregor",      emoji: "🥊", gender: "male" },
-  { query: "andrew tate",             label: "Andrew Tate",         emoji: "💎", gender: "male" },
-  { query: "lebron james",            label: "LeBron James",        emoji: "🏀", gender: "male" },
+  { query: "donald trump",   terms: ["trump", "donald trump", "president trump"],  label: "Donald Trump",       emoji: "🇺🇸", gender: "male" },
+  { query: "elon musk",      terms: ["elon musk", "elon", "musk spacex"],          label: "Elon Musk",          emoji: "🚀", gender: "male" },
+  { query: "morgan freeman", terms: ["morgan freeman", "morgan"],                  label: "Morgan Freeman",     emoji: "🎬", gender: "male" },
+  { query: "arnold",         terms: ["arnold schwarzenegger", "arnold", "terminator"], label: "Arnold",         emoji: "💪", gender: "male" },
+  { query: "barack obama",   terms: ["obama", "barack obama", "president obama"],  label: "Barack Obama",       emoji: "🌟", gender: "male" },
+  { query: "joe biden",      terms: ["biden", "joe biden"],                        label: "Joe Biden",          emoji: "🦅", gender: "male" },
+  { query: "joe rogan",      terms: ["joe rogan", "rogan"],                        label: "Joe Rogan",          emoji: "🎙️", gender: "male" },
+  { query: "jordan peterson",terms: ["jordan peterson", "peterson"],               label: "Jordan Peterson",    emoji: "🦞", gender: "male" },
+  { query: "kevin hart",     terms: ["kevin hart", "hart comedian"],               label: "Kevin Hart",         emoji: "😂", gender: "male" },
+  { query: "dwayne johnson", terms: ["dwayne johnson", "the rock"],                label: "The Rock",           emoji: "🪨", gender: "male" },
+  { query: "will smith",     terms: ["will smith", "fresh prince"],                label: "Will Smith",         emoji: "🎥", gender: "male" },
+  { query: "samuel jackson", terms: ["samuel jackson", "samuel l jackson"],        label: "Samuel L. Jackson",  emoji: "🎭", gender: "male" },
+  { query: "eminem",         terms: ["eminem", "slim shady", "marshall mathers"],  label: "Eminem",             emoji: "🎤", gender: "male" },
+  { query: "drake",          terms: ["drake rapper", "drake"],                     label: "Drake",              emoji: "🦉", gender: "male" },
+  { query: "kanye west",     terms: ["kanye west", "kanye", "ye"],                 label: "Kanye West",         emoji: "🎵", gender: "male" },
+  { query: "snoop dogg",     terms: ["snoop dogg", "snoop"],                       label: "Snoop Dogg",         emoji: "🎶", gender: "male" },
+  { query: "gordon ramsay",  terms: ["gordon ramsay", "ramsay chef"],              label: "Gordon Ramsay",      emoji: "👨‍🍳", gender: "male" },
+  { query: "conor mcgregor", terms: ["conor mcgregor", "mcgregor"],                label: "Conor McGregor",     emoji: "🥊", gender: "male" },
+  { query: "andrew tate",    terms: ["andrew tate", "tate"],                       label: "Andrew Tate",        emoji: "💎", gender: "male" },
+  { query: "lebron james",   terms: ["lebron james", "lebron"],                    label: "LeBron James",       emoji: "🏀", gender: "male" },
   // ── Female celebrities ─────────────────────────────────────────────────────
-  { query: "taylor swift",            label: "Taylor Swift",        emoji: "🎸", gender: "female" },
-  { query: "beyonce",                 label: "Beyoncé",             emoji: "👑", gender: "female" },
-  { query: "oprah winfrey",           label: "Oprah Winfrey",       emoji: "📺", gender: "female" },
-  { query: "ariana grande",           label: "Ariana Grande",       emoji: "🌙", gender: "female" },
-  { query: "rihanna",                 label: "Rihanna",             emoji: "💄", gender: "female" },
-  { query: "nicki minaj",             label: "Nicki Minaj",         emoji: "🩷", gender: "female" },
-  { query: "cardi b",                 label: "Cardi B",             emoji: "💅", gender: "female" },
-  { query: "lady gaga",               label: "Lady Gaga",           emoji: "🎭", gender: "female" },
-  { query: "adele",                   label: "Adele",               emoji: "🎶", gender: "female" },
-  { query: "kim kardashian",          label: "Kim Kardashian",      emoji: "🌸", gender: "female" },
-  { query: "jennifer lopez",          label: "Jennifer Lopez",      emoji: "💃", gender: "female" },
-  { query: "scarlett johansson",      label: "Scarlett Johansson",  emoji: "🎬", gender: "female" },
-] as const;
+  { query: "taylor swift",   terms: ["taylor swift", "swift"],                     label: "Taylor Swift",       emoji: "🎸", gender: "female" },
+  { query: "beyonce",        terms: ["beyonce", "beyoncé", "queen bey"],           label: "Beyoncé",            emoji: "👑", gender: "female" },
+  { query: "oprah winfrey",  terms: ["oprah winfrey", "oprah"],                   label: "Oprah Winfrey",      emoji: "📺", gender: "female" },
+  { query: "ariana grande",  terms: ["ariana grande", "ariana"],                  label: "Ariana Grande",      emoji: "🌙", gender: "female" },
+  { query: "rihanna",        terms: ["rihanna"],                                   label: "Rihanna",            emoji: "💄", gender: "female" },
+  { query: "nicki minaj",    terms: ["nicki minaj", "nicki"],                      label: "Nicki Minaj",        emoji: "🩷", gender: "female" },
+  { query: "cardi b",        terms: ["cardi b", "cardi"],                          label: "Cardi B",            emoji: "💅", gender: "female" },
+  { query: "lady gaga",      terms: ["lady gaga", "gaga"],                         label: "Lady Gaga",          emoji: "🎭", gender: "female" },
+  { query: "adele",          terms: ["adele singer", "adele"],                     label: "Adele",              emoji: "🎶", gender: "female" },
+  { query: "kim kardashian", terms: ["kim kardashian", "kardashian"],              label: "Kim Kardashian",     emoji: "🌸", gender: "female" },
+  { query: "jennifer lopez", terms: ["jennifer lopez", "jlo"],                     label: "Jennifer Lopez",     emoji: "💃", gender: "female" },
+  { query: "scarlett johansson", terms: ["scarlett johansson", "scarlett"],        label: "Scarlett Johansson", emoji: "🎬", gender: "female" },
+];
 
-// Simple in-memory cache for voice search results
+// In-memory cache: query → voice result (null = not found)
 const voiceCache = new Map<string, { voiceId: string; name: string } | null>();
 
-export async function findCelebrityVoice(
-  query: string,
+async function searchSharedVoice(
+  term: string,
+  apiKey: string,
 ): Promise<{ voiceId: string; name: string } | null> {
-  if (voiceCache.has(query)) return voiceCache.get(query)!;
-
   try {
-    const apiKey = getApiKey();
-    const url = `https://api.elevenlabs.io/v1/shared-voices?search=${encodeURIComponent(query)}&page_size=3`;
+    const url = `https://api.elevenlabs.io/v1/shared-voices?search=${encodeURIComponent(term)}&page_size=5`;
     const resp = await fetch(url, {
       headers: { "xi-api-key": apiKey },
       signal: AbortSignal.timeout(8_000),
     });
-
-    if (!resp.ok) {
-      voiceCache.set(query, null);
-      return null;
-    }
-
-    const data = (await resp.json()) as { voices?: Array<{ voice_id: string; name: string }> };
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as { voices?: Array<{ voice_id: string; name: string; use_case?: string; category?: string }> };
     const first = data.voices?.[0];
-    if (!first) {
-      voiceCache.set(query, null);
-      return null;
-    }
-
-    const result = { voiceId: first.voice_id, name: first.name };
-    voiceCache.set(query, result);
-    return result;
+    return first ? { voiceId: first.voice_id, name: first.name } : null;
   } catch {
-    voiceCache.set(query, null);
     return null;
   }
+}
+
+export async function findCelebrityVoice(
+  query: string,
+  altTerms: string[] = [],
+): Promise<{ voiceId: string; name: string } | null> {
+  if (voiceCache.has(query)) return voiceCache.get(query)!;
+
+  const apiKey = getApiKey();
+  const termsToTry = [query, ...altTerms];
+
+  for (const term of termsToTry) {
+    const result = await searchSharedVoice(term, apiKey);
+    if (result) {
+      voiceCache.set(query, result);
+      return result;
+    }
+  }
+
+  voiceCache.set(query, null);
+  return null;
 }
 
 export async function getCelebrityVoices(): Promise<
@@ -95,7 +101,7 @@ export async function getCelebrityVoices(): Promise<
 > {
   const results = await Promise.all(
     CELEBRITY_QUERIES.map(async (c) => {
-      const voice = await findCelebrityVoice(c.query);
+      const voice = await findCelebrityVoice(c.query, c.terms);
       if (!voice) return null;
       return {
         voiceId: voice.voiceId,

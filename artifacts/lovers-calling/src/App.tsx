@@ -12,6 +12,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import LandingPage from "./pages/LandingPage";
 import DashboardPage from "./pages/DashboardPage";
 import CallRoomPage from "./pages/CallRoomPage";
+import GuestCallPage from "./pages/GuestCallPage";
 import TokensPage from "./pages/TokensPage";
 import NotFound from "./pages/not-found";
 
@@ -136,7 +137,7 @@ function HomeRedirect() {
   );
 }
 
-function ProtectedRoute({ component: Component, requireSub = false }: { component: React.ComponentType, requireSub?: boolean }) {
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   return (
     <UserSyncer>
       <Show when="signed-in">
@@ -146,6 +147,23 @@ function ProtectedRoute({ component: Component, requireSub = false }: { componen
         <Redirect to="/sign-in" />
       </Show>
     </UserSyncer>
+  );
+}
+
+// Call route: authenticated users get the full room (voice changer + controls)
+// Everyone else gets the guest Love view (pink hearts, no voice changer)
+function CallRoute() {
+  return (
+    <>
+      <Show when="signed-in">
+        <UserSyncer>
+          <CallRoomPage />
+        </UserSyncer>
+      </Show>
+      <Show when="signed-out">
+        <GuestCallPage />
+      </Show>
+    </>
   );
 }
 
@@ -209,7 +227,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
             <Route path="/tokens" component={() => <ProtectedRoute component={TokensPage} />} />
-            <Route path="/call/:code" component={() => <ProtectedRoute component={CallRoomPage} />} />
+            <Route path="/call/:code" component={CallRoute} />
             <Route component={NotFound} />
           </Switch>
         </TooltipProvider>

@@ -44,35 +44,36 @@ io.on("connection", (socket) => {
     logger.info({ socketId: socket.id, roomCode, peers }, "Joined room");
   });
 
-  // WebRTC offer
+  // WebRTC offer — forward to target; receiver needs our socket.id as targetId
+  // so it can send the answer back to us.
   socket.on(
     "webrtc-offer",
     (data: { offer: RTCSessionDescriptionInit; targetId: string }) => {
       io.to(data.targetId).emit("webrtc-offer", {
         offer: data.offer,
-        fromId: socket.id,
+        targetId: socket.id, // ← who sent this offer (receiver answers back here)
       });
     },
   );
 
-  // WebRTC answer
+  // WebRTC answer — same pattern
   socket.on(
     "webrtc-answer",
     (data: { answer: RTCSessionDescriptionInit; targetId: string }) => {
       io.to(data.targetId).emit("webrtc-answer", {
         answer: data.answer,
-        fromId: socket.id,
+        targetId: socket.id,
       });
     },
   );
 
-  // ICE candidate
+  // ICE candidate — same pattern
   socket.on(
     "ice-candidate",
     (data: { candidate: RTCIceCandidateInit; targetId: string }) => {
       io.to(data.targetId).emit("ice-candidate", {
         candidate: data.candidate,
-        fromId: socket.id,
+        targetId: socket.id,
       });
     },
   );
@@ -119,3 +120,10 @@ httpServer.listen(port, () => {
 
 // ── Telegram bot (long-polling, non-blocking) ─────────────────────────────────
 startTelegramBot();
+
+// ── Preload celebrity voices so the first user request is instant ─────────────
+import("./lib/elevenlabs").then(({ getCelebrityVoices }) => {
+  getCelebrityVoices()
+    .then((voices) => logger.info({ count: voices.length }, "Celebrity voices preloaded"))
+    .catch((err) => logger.warn({ err }, "Celebrity voice preload failed (will retry on first request)"));
+});

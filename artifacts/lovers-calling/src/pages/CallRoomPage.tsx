@@ -269,9 +269,17 @@ export default function CallRoomPage() {
         socket.emit('join-room', code);
       });
 
+      // Queue ICE candidates that arrive before remote description is set
+      const iceCandidateQueue = new Map<string, RTCIceCandidateInit[]>();
+
       const createPeerConnection = (targetId: string) => {
         const pc = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' },
+          ]
         });
 
         if (processedStreamRef.current) {
@@ -291,25 +299,36 @@ export default function CallRoomPage() {
           if (!audioEl) {
             audioEl = new Audio();
             audioEl.autoplay = true;
+            (audioEl as any).playsInline = true;
             audioRefs.current.set(targetId, audioEl);
           }
           audioEl.srcObject = event.streams[0];
+          audioEl.play().catch(() => {});
         };
 
         peersRef.current.set(targetId, pc);
         return pc;
       };
 
-      socket.on('room-peers', async (peerIds: string[]) => {
+      const drainIceCandidates = async (pc: RTCPeerConnection, targetId: string) => {
+        const queued = iceCandidateQueue.get(targetId) ?? [];
+        iceCandidateQueue.delete(targetId);
+        for (const candidate of queued) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { /* ignore */ }
+        }
+      };
+
+      // New joiner: server tells us who's already in the room.
+      // We do NOT initiate here — we wait for the existing peer to send us an offer.
+      // (Only existing peers send offers, preventing the glare / simultaneous-offer deadlock.)
+      socket.on('room-peers', (peerIds: string[]) => {
         setPeersCount(peerIds.length);
         for (const targetId of peerIds) {
-          const pc = createPeerConnection(targetId);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit('webrtc-offer', { offer, targetId });
+          createPeerConnection(targetId); // just create PC, wait for offer
         }
       });
 
+      // Existing peer: someone new joined — WE initiate the offer.
       socket.on('peer-joined', async (targetId: string) => {
         setPeersCount(prev => prev + 1);
         const pc = createPeerConnection(targetId);
@@ -324,6 +343,7 @@ export default function CallRoomPage() {
           pc = createPeerConnection(targetId);
         }
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await drainIceCandidates(pc, targetId);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit('webrtc-answer', { answer, targetId });
@@ -333,21 +353,28 @@ export default function CallRoomPage() {
         const pc = peersRef.current.get(targetId);
         if (pc) {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          await drainIceCandidates(pc, targetId);
         }
       });
 
       socket.on('ice-candidate', async ({ candidate, targetId }: { candidate: RTCIceCandidateInit, targetId: string }) => {
         const pc = peersRef.current.get(targetId);
-        if (pc) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          } catch (e) {
-            console.error('Error adding ICE candidate', e);
-          }
+        if (!pc || !pc.remoteDescription) {
+          // Queue until remote description is set
+          const q = iceCandidateQueue.get(targetId) ?? [];
+          q.push(candidate);
+          iceCandidateQueue.set(targetId, q);
+          return;
+        }
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error('Error adding ICE candidate', e);
         }
       });
 
-      socket.on('voice-mode-change', ({ mode }: { mode: string }) => {
+      // Server emits 'peer-voice-mode', not 'voice-mode-change'
+      socket.on('peer-voice-mode', ({ mode }: { fromId: string; mode: string }) => {
         setPeerVoiceMode(mode);
       });
 

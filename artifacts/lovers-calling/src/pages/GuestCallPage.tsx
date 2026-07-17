@@ -66,29 +66,53 @@ export default function GuestCallPage() {
 
       socket.on("disconnect", () => setIsConnected(false));
 
+      // Queue ICE candidates that arrive before remote description is set
+      const iceCandidateQueue = new Map<string, RTCIceCandidateInit[]>();
+
       const createPeer = (targetId: string) => {
-        const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+            { urls: "stun:stun.cloudflare.com:3478" },
+          ],
+        });
         localStreamRef.current?.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
         pc.onicecandidate = (e) => { if (e.candidate) socket.emit("ice-candidate", { candidate: e.candidate, targetId }); };
         pc.ontrack = (e) => {
           let el = audioRefs.current.get(targetId);
-          if (!el) { el = new Audio(); el.autoplay = true; audioRefs.current.set(targetId, el); }
+          if (!el) {
+            el = new Audio();
+            el.autoplay = true;
+            (el as any).playsInline = true;
+            audioRefs.current.set(targetId, el);
+          }
           el.srcObject = e.streams[0];
+          el.play().catch(() => {});
         };
         peersRef.current.set(targetId, pc);
         return pc;
       };
 
-      socket.on("room-peers", async (peerIds: string[]) => {
+      const drainIceCandidates = async (pc: RTCPeerConnection, targetId: string) => {
+        const queued = iceCandidateQueue.get(targetId) ?? [];
+        iceCandidateQueue.delete(targetId);
+        for (const c of queued) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore */ }
+        }
+      };
+
+      // New joiner: just create PCs and wait for existing peers to send offers.
+      // (Existing peers initiate — prevents simultaneous-offer / glare deadlock.)
+      socket.on("room-peers", (peerIds: string[]) => {
         setPeersCount(peerIds.length);
         for (const id of peerIds) {
-          const pc = createPeer(id);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          socket.emit("webrtc-offer", { offer, targetId: id });
+          createPeer(id); // create PC, wait for offer from other side
         }
       });
 
+      // Existing peer: someone joined — WE send the offer.
       socket.on("peer-joined", async (targetId: string) => {
         setPeersCount((n) => n + 1);
         const pc = createPeer(targetId);
@@ -101,6 +125,7 @@ export default function GuestCallPage() {
         let pc = peersRef.current.get(targetId);
         if (!pc) pc = createPeer(targetId);
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await drainIceCandidates(pc, targetId);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit("webrtc-answer", { answer, targetId });
@@ -108,12 +133,21 @@ export default function GuestCallPage() {
 
       socket.on("webrtc-answer", async ({ answer, targetId }: { answer: RTCSessionDescriptionInit; targetId: string }) => {
         const pc = peersRef.current.get(targetId);
-        if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        if (pc) {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          await drainIceCandidates(pc, targetId);
+        }
       });
 
       socket.on("ice-candidate", async ({ candidate, targetId }: { candidate: RTCIceCandidateInit; targetId: string }) => {
         const pc = peersRef.current.get(targetId);
-        if (pc) { try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { /* ignore */ } }
+        if (!pc || !pc.remoteDescription) {
+          const q = iceCandidateQueue.get(targetId) ?? [];
+          q.push(candidate);
+          iceCandidateQueue.set(targetId, q);
+          return;
+        }
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { /* ignore */ }
       });
 
       socket.on("peer-left", (targetId: string) => {
